@@ -1,38 +1,57 @@
-from collections import namedtuple
-import altair as alt
-import math
-import pandas as pd
-import streamlit as st
+# Bring in deps
+import os 
+from apikey import apikey 
 
-"""
-# Welcome to Streamlit!
+import streamlit as st 
+from langchain.llms import OpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain, SequentialChain 
+from langchain.memory import ConversationBufferMemory
+from langchain.utilities import WikipediaAPIWrapper 
 
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:
+os.environ['OPENAI_API_KEY'] = apikey
 
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
+# App framework
+st.title('🦜🔗 YouTube GPT Creator')
+prompt = st.text_input('Plug in your prompt here') 
 
-In the meantime, below is an example of what you can do with just a few lines of code:
-"""
+# Prompt templates
+title_template = PromptTemplate(
+    input_variables = ['topic'], 
+    template='write me a youtube video title about {topic}'
+)
+
+script_template = PromptTemplate(
+    input_variables = ['title', 'wikipedia_research'], 
+    template='write me a youtube video script based on this title TITLE: {title} while leveraging this wikipedia reserch:{wikipedia_research} '
+)
+
+# Memory 
+title_memory = ConversationBufferMemory(input_key='topic', memory_key='chat_history')
+script_memory = ConversationBufferMemory(input_key='title', memory_key='chat_history')
 
 
-with st.echo(code_location='below'):
-    total_points = st.slider("Number of points in spiral", 1, 5000, 2000)
-    num_turns = st.slider("Number of turns in spiral", 1, 100, 9)
+# Llms
+llm = OpenAI(temperature=0.9) 
+title_chain = LLMChain(llm=llm, prompt=title_template, verbose=True, output_key='title', memory=title_memory)
+script_chain = LLMChain(llm=llm, prompt=script_template, verbose=True, output_key='script', memory=script_memory)
 
-    Point = namedtuple('Point', 'x y')
-    data = []
+wiki = WikipediaAPIWrapper()
 
-    points_per_turn = total_points / num_turns
+# Show stuff to the screen if there's a prompt
+if prompt: 
+    title = title_chain.run(prompt)
+    wiki_research = wiki.run(prompt) 
+    script = script_chain.run(title=title, wikipedia_research=wiki_research)
 
-    for curr_point_num in range(total_points):
-        curr_turn, i = divmod(curr_point_num, points_per_turn)
-        angle = (curr_turn + 1) * 2 * math.pi * i / points_per_turn
-        radius = curr_point_num / total_points
-        x = radius * math.cos(angle)
-        y = radius * math.sin(angle)
-        data.append(Point(x, y))
+    st.write(title) 
+    st.write(script) 
 
-    st.altair_chart(alt.Chart(pd.DataFrame(data), height=500, width=500)
-        .mark_circle(color='#0068c9', opacity=0.5)
-        .encode(x='x:Q', y='y:Q'))
+    with st.expander('Title History'): 
+        st.info(title_memory.buffer)
+
+    with st.expander('Script History'): 
+        st.info(script_memory.buffer)
+
+    with st.expander('Wikipedia Research'): 
+        st.info(wiki_research)
